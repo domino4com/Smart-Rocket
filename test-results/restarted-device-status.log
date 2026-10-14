@@ -1,0 +1,11 @@
+STATUS state=0 x=0.84570 y=-0.07031 z=-0.08008 temp=24.132 pressure=98536.95 soc=0 batt_mV=3744 usb=1 charging=1 age_ms=533 samples=79892 baro=12487 dropped=0 errors=0 max_gap_us=7651 rows=0
+ARM eligible=1 filtered_x=0.8884 norm=0.8947 inverted_hold_ms=0
+STATUS state=0 x=0.88672 y=-0.09180 z=-0.00586 temp=24.110 pressure=98533.32 soc=0 batt_mV=3742 usb=1 charging=1 age_ms=554 samples=80719 baro=12616 dropped=0 errors=0 max_gap_us=7651 rows=0
+ARM eligible=1 filtered_x=0.8797 norm=0.8850 inverted_hold_ms=0
+STATUS state=0 x=0.91406 y=-0.08594 z=-0.11914 temp=24.137 pressure=98534.77 soc=0 batt_mV=3742 usb=1 charging=1 age_ms=582 samples=81551 baro=12747 dropped=0 errors=0 max_gap_us=7651 rows=0
+ARM eligible=1 filtered_x=0.8755 norm=0.8800 inverted_hold_ms=0
+STATUS state=0 x=0.84961 y=-0.05664 z=-0.06055 temp=24.132 pressure=98535.53 soc=0 batt_mV=3741 usb=1 charging=1 age_ms=605 samples=82380 baro=12876 dropped=0 errors=0 max_gap_us=7651 rows=0
+ARM eligible=1 filtered_x=0.8851 norm=0.8899 inverted_hold_ms=0
+STATUS state=0 x=1.00977 y=-0.04883 z=-0.13477 temp=24.114 pressure=98541.75 soc=0 batt_mV=3741 usb=1 charging=1 age_ms=632 samples=83215 baro=13006 dropped=0 errors=0 max_gap_us=7651 rows=0
+ARM eligible=1 filtered_x=0.8854 norm=0.8906 inverted_hold_ms=0
+LIVE state=0 xyz=0.8848,-0.0723,-0.0137 temp=24.13 Pa=98537.82 samples=83915 baro=13116 drops=0 errors=0 gap_us=7651

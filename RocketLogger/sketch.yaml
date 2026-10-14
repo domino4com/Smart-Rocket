@@ -1,0 +1,18 @@
+# Share this entire folder, including the .ino, .cpp, Config.h and this file.
+# Arduino CLI installs these exact versions into an isolated profile cache.
+# Choose your own serial port when uploading; no machine-specific port is saved.
+profiles:
+  cwa_v2:
+    notes: CWA v2+ ESP32-S3 FN8; 8MB flash; native USB CDC; no PSRAM; 4-bit SD MMC.
+    fqbn: esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=8M,PartitionScheme=default_8MB
+    platforms:
+      - platform: esp32:esp32 (3.3.12)
+        platform_index_url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    libraries:
+      - Adafruit NeoPixel (1.15.5)
+      - XPowersLib (0.3.3)
+    port_config:
+      baudrate: 115200
+    protocol: serial
+
+default_profile: cwa_v2

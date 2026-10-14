@@ -1,0 +1,16 @@
+{
+  "rows": 7350,
+  "duration_ms": 9013,
+  "rate_hz": 815.3798683831103,
+  "max_gap_us": 2227,
+  "mean_xyz_g": [
+    0.8786702408163265,
+    -0.12844728299319727,
+    -0.037514062585034015
+  ],
+  "mean_temp_C": 24.377287346938775,
+  "mean_pressure_Pa": 98541.65799047619,
+  "max_pressure_age_ms": 9,
+  "queue_drops": 0,
+  "sequence_contiguous": true
+}

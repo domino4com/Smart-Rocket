@@ -66,3 +66,21 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Smart Rocket local workspace and tooling
+tmp/
+tools/venv/
+__pycache__/
+.DS_Store
+Huali-Offline/
+
+# Keep full bench captures local; publish selected compact evidence.
+test-results/*.csv
+!test-results/example-flight.csv
+!test-results/restarted-device-status.log
+!test-results/no-host-check.log
+!test-results/manual-stop-serial-close.log
+test-results/*upload.log
+test-results/readback.json
+test-results/readback-handshake.log
+test-results/status_readback.txt

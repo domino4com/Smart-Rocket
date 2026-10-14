@@ -1,0 +1,5 @@
+STATUS state=1 x=0.92188 y=-0.11523 z=-0.01172 temp=24.396 pressure=98540.33 soc=0 batt_mV=3353 usb=1 charging=1 age_ms=9014 samples=61363 baro=9565 dropped=0 errors=0 max_gap_us=5368 rows=7349
+STATE CLOSING
+CLOSED rows=7350 max_write_us=10604
+STATE POST
+LIVE state=3 xyz=0.8730,-0.1660,-0.0527 temp=24.39 Pa=98542.07 samples=64033 baro=9981 drops=0 errors=0 gap_us=5867
