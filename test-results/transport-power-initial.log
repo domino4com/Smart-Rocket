@@ -1,0 +1,12 @@
+STATUS state=0 x=0.91797 y=-0.20117 z=-0.04688 temp=22.802 pressure=98912.10 soc=93 batt_mV=4125 usb=1 charging=1 age_ms=815 samples=7133 baro=1117 dropped=0 errors=0 max_gap_us=6081 rows=0
+ARM eligible=1 filtered_x=0.9000 norm=0.9061 inverted_hold_ms=0
+POWER_POLICY off_latched=0 shutdown_pending=0 key_released=0
+STATUS state=0 x=0.95117 y=-0.10156 z=-0.02930 temp=22.807 pressure=98911.69 soc=93 batt_mV=4126 usb=1 charging=1 age_ms=835 samples=7957 baro=1247 dropped=0 errors=0 max_gap_us=6081 rows=0
+ARM eligible=1 filtered_x=0.8875 norm=0.8945 inverted_hold_ms=0
+POWER_POLICY off_latched=0 shutdown_pending=0 key_released=0
+STATUS state=0 x=0.82031 y=-0.10742 z=-0.01172 temp=22.807 pressure=98914.68 soc=93 batt_mV=4126 usb=1 charging=1 age_ms=860 samples=8786 baro=1376 dropped=0 errors=0 max_gap_us=6081 rows=0
+ARM eligible=1 filtered_x=0.8766 norm=0.8824 inverted_hold_ms=0
+POWER_POLICY off_latched=0 shutdown_pending=0 key_released=0
+STATUS state=0 x=0.89648 y=0.00586 z=0.00391 temp=22.827 pressure=98919.34 soc=93 batt_mV=4125 usb=1 charging=1 age_ms=881 samples=9611 baro=1506 dropped=0 errors=0 max_gap_us=6081 rows=0
+ARM eligible=1 filtered_x=0.8722 norm=0.8770 inverted_hold_ms=0
+POWER_POLICY off_latched=0 shutdown_pending=0 key_released=0

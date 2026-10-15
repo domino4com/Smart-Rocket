@@ -84,3 +84,5 @@ test-results/*upload.log
 test-results/readback.json
 test-results/readback-handshake.log
 test-results/status_readback.txt
+
+!test-results/transport-power-initial.log

@@ -8,14 +8,17 @@
  */
 #include <Adafruit_NeoPixel.h>
 #include <Arduino.h>
+#include <Preferences.h>
 #include <SD_MMC.h>
 #include <Wire.h>
 #include <XPowersLib.h>
+#include <esp_sleep.h>
 #include <esp_timer.h>
 
 #include <atomic>
 
 #include "Config.h"
+#include "PowerPolicy.h"
 
 XPowersAXP2101 pmu(Wire, SDA_PIN, SCL_PIN);
 Adafruit_NeoPixel pixel(1, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
@@ -31,7 +34,10 @@ int c0, c1, c00, c10, c01, c11, c20, c21, c30;
 bool haveT = false, haveP = false, pmuOK = false, shutAfterClose = false;
 bool stopRequested = false, reportAfterClose = false;
 bool sensorsOK = false, sdOK = false;
-bool pmuOffObserved = false;
+Preferences powerPrefs;
+bool offIntentLatched = false, shutdownKeyReleased = false;
+UsbInsertionGate usbInsertion;
+uint32_t lastOffEnforceMs = 0;
 struct Battery {
   int soc = -1;
   uint16_t mv = 0, vbusMv = 0, systemMv = 0;
@@ -78,6 +84,35 @@ bool putReg(uint8_t addr, uint8_t reg, uint8_t value) {
   }
   return true;
 }
+bool readUsbPower(bool& present) {
+  uint8_t status[2];
+  if (!readRegs(0x34, 0x00, status, sizeof status)) return false;
+  present = (status[0] & 0x20) && !(status[1] & 0x08);
+  return true;
+}
+
+bool saveOffIntent(bool off) {
+  if (powerPrefs.putBool("off", off) != 1) {
+    Serial.println("POWER ERROR: could not save persistent off state");
+    return false;
+  }
+  offIntentLatched = off;
+  return true;
+}
+
+// Preserve thermal/voltage protections, but remove PMU sleep/IRQ wake paths.
+// These settings do not change any one-time-programmable factory configuration.
+void preparePmuPowerOff() {
+  pmu.disableWatchdog();
+  pmu.disablePwrOkPinPullLow();
+  pmu.setLongPressPowerOFF();
+  pmu.disableBATFET();  // BATFET disabled in the PMU's battery-only OFF state
+  uint8_t wake;
+  if (readRegs(0x34, 0x26, &wake, 1)) putReg(0x34, 0x26, wake & ~0x13);
+  pmu.disableInterrupt(XPOWERS_ALL_INT);
+  pmu.clearIrqStatus();
+}
+
 int32_t signExtend(uint32_t v, int bits) {
   return (v & (1UL << (bits - 1))) ? int32_t(v) - int32_t(1UL << bits) : int32_t(v);
 }
@@ -151,7 +186,7 @@ bool initPower() {
   pmu.setPowerKeyPressOffTime(XPOWERS_POWEROFF_10S);
   pmu.setPowerKeyPressOnTime(XPOWERS_POWERON_1S);
   pmu.disableInterrupt(XPOWERS_ALL_INT);
-  pmu.enableInterrupt(XPOWERS_PWR_BTN_LONGPRESSED_INT);
+  pmu.enableIRQ(XPOWERS_AXP2101_PKEY_LONG_IRQ | XPOWERS_AXP2101_PKEY_POSITIVE_IRQ);
   pmu.clearIrqStatus();
   if (ENABLE_CHARGING) {
     pmu.setPrechargeCurr(XPOWERS_AXP2101_PRECHARGE_25MA);
@@ -398,30 +433,51 @@ void statusReport() {
 // PMU key handling is independent of sensor/SD health. A sensor fault must
 // not disable the power button. Hardware shutdown at 10s remains a backup.
 void performShutdown() {
-  Serial.println("POWER: requesting PMU shutdown (USB/LDO may still power ESP32)");
+  // The latch is normally saved as soon as the long press is recognized,
+  // before even the hardware's backup shutdown can interrupt the ESP32.
+  if (!offIntentLatched && !saveOffIntent(true)) return;
+  Serial.println("POWER: transport-off latched; USB insertion is required to run again");
   state = POWER_OFF;
-  pmuOffObserved = false;
   pixel.clear();
   pixel.show();
+  bool usb = false;
+  bool usbValid = readUsbPower(usb);
+  usbInsertion.arm(usbValid, usb);
+  preparePmuPowerOff();
   pmu.setChargingLedMode(pmu.isCharging() ? XPOWERS_CHG_LED_BLINK_1HZ : XPOWERS_CHG_LED_OFF);
   pmu.shutdown();
+  lastOffEnforceMs = millis();
   delay(100);
-  pmuOffObserved = !pmu.isPowerOn();
-  Serial.printf("POWER: pmu_on=%d (0 confirms PMU off)\n", !pmuOffObserved);
+  uint8_t status;
+  if (readRegs(0x34, 1, &status, 1))
+    Serial.printf("POWER: pmu_on=%d off_latched=1\n", !!(status & 0x10));
+  // Normally the PMU has already removed battery power. If the MCU remains
+  // powered briefly, do not leave a running CPU or any timed wake source.
+  if (usbValid && !usb) {
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    esp_deep_sleep_start();
+  }
 }
+
 void pollPowerKey(uint32_t now) {
   static uint32_t lastKeyPoll = 0;
-  if (!pmuOK || state == POWER_OFF || shutAfterClose || now - lastKeyPoll < 100) return;
+  if (!pmuOK || state == POWER_OFF || now - lastKeyPoll < 100) return;
   lastKeyPoll = now;
   pmu.getIrqStatus();
   bool longPress = pmu.isPekeyLongPressIrq();
+  bool released = pmu.isPekeyPositiveIrq();
   pmu.clearIrqStatus();
-  if (!longPress) return;
-  Serial.println("POWER: long-press IRQ detected");
-  shutAfterClose = true;
-  if (state == FLIGHT)
-    stopFlight();
-  else if (state != CLOSING)
+  if (longPress && !shutAfterClose) {
+    if (!saveOffIntent(true)) return;
+    Serial.println("POWER: long press latched; closing log and waiting for button release");
+    shutAfterClose = true;
+    shutdownKeyReleased = false;
+    if (state == FLIGHT) stopFlight();
+  }
+  if (shutAfterClose && released) shutdownKeyReleased = true;
+  // Cutting power with PWRON still held low can initiate another power-on.
+  // Wait for release and for SD closure, whichever takes longer.
+  if (shutAfterClose && shutdownKeyReleased && state != FLIGHT && state != CLOSING)
     performShutdown();
 }
 
@@ -436,9 +492,9 @@ void pixelState() {
     uint32_t period = 250 + soc * 27;  // 4Hz empty to ~0.34Hz full, 50% duty
     bool on = (millis() % period) < period / 2;
     color = !on                ? 0
+            : state == READY   ? pixel.Color(0, 0, 32)
             : battery.charging ? pixel.Color(24, 0, 24)
-            : state == POST    ? pixel.Color(0, 32, 0)
-                               : pixel.Color(0, 0, 32);
+                               : pixel.Color(0, 32, 0);
   }
   static uint32_t previous = 0xFFFFFFFF;
   if (previous != color) {
@@ -451,12 +507,44 @@ void timerTick(void*) { xTaskNotifyGive(sensorTask); }
 void setup() {
   Serial.begin(115200);
   Serial.setTxTimeoutMs(0);  // An absent/slow USB host must never stall flight sampling.
-  delay(1000);
-  Serial.println("RocketLogger boot");
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pixel.begin();
+  pixel.clear();
+  pixel.show();
   Wire.begin(SDA_PIN, SCL_PIN, 400000);
   Wire.setTimeOut(10);
+  pmuOK = pmu.init();
+  if (!powerPrefs.begin("rocketpower", false)) {
+    Serial.println("POWER ERROR: persistent power-state storage unavailable");
+    state = FAULT;
+    pixelState();
+    return;
+  }
+  offIntentLatched = powerPrefs.getBool("off", false);
+  bool usb = false, usbValid = false;
+  // Allow USB/PMU input detection to settle without enabling battery outputs.
+  for (int attempt = 0; attempt < 10; ++attempt) {
+    usbValid = pmuOK && readUsbPower(usb);
+    if (usbValid && usb) break;
+    delay(20);
+  }
+  if (!allowLoggerBoot(offIntentLatched, usbValid, usb)) {
+    Serial.println("POWER: battery-only reboot blocked by saved off request");
+    if (pmuOK)
+      performShutdown();
+    else {
+      esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+      esp_deep_sleep_start();
+    }
+    return;
+  }
+  if (offIntentLatched && !saveOffIntent(false)) {
+    state = FAULT;
+    pixelState();
+    return;
+  }
+  delay(1000);
+  Serial.println("RocketLogger boot: READY requested; off_latched=0");
   for (uint8_t a = 1; a < 127; a++) {
     Wire.beginTransmission(a);
     if (Wire.endTransmission() == 0) Serial.printf("I2C 0x%02x\n", a);
@@ -495,12 +583,21 @@ void setup() {
 }
 void loop() {
   if (state == POWER_OFF) {
-    // USB bypasses the PMU. Halt acquisition and LEDs while that supply remains.
-    bool on = pmu.isPowerOn();
-    if (!on) pmuOffObserved = true;
-    if (pmuOffObserved && on) ESP.restart();  // PMU key turned its rails back on
+    bool usb = false;
+    bool usbValid = readUsbPower(usb);
+    if (usbInsertion.observe(usbValid, usb)) {
+      Serial.println("POWER: fresh USB insertion; returning to normal startup");
+      ESP.restart();  // startup clears the saved latch only with confirmed USB
+    }
+    // A PMU on-status, a key press, or an I2C error is NEVER a wake command.
+    // Reassert shutdown if the core remains supplied by USB's separate LDO.
+    if (millis() - lastOffEnforceMs >= 1000) {
+      pmu.shutdown();
+      lastOffEnforceMs = millis();
+    }
     if (Serial.available() && Serial.read() == '?')
-      Serial.printf("STATUS state=5 pmu_on=%d USB_LDO_can_still_power_ESP32=1\n", on);
+      Serial.printf("STATUS state=5 off_latched=1 usb_valid=%d usb=%d USB_insertion_required=1\n",
+                    usbValid, usb);
     delay(100);
     return;
   }
@@ -572,7 +669,7 @@ void loop() {
       }
       float armNorm = sqrtf(orientation[0] * orientation[0] + orientation[1] * orientation[1] +
                             orientation[2] * orientation[2]);
-      if ((state == READY || state == POST) && !dumping) {
+      if ((state == READY || state == POST) && !dumping && !shutAfterClose) {
         if (orientation[0] > 0.75f && armNorm > ARM_GRAVITY_MIN_G && armNorm < ARM_GRAVITY_MAX_G) {
           if (!uprightAt) uprightAt = now;
           if (now - uprightAt >= 1000) armEligible = true;
@@ -631,7 +728,7 @@ void loop() {
       reportAfterClose = false;
       statusReport();  // recording is closed; fresh battery telemetry is allowed
     }
-    if (shutAfterClose) {
+    if (shutAfterClose && shutdownKeyReleased) {
       performShutdown();
       return;
     }
@@ -687,6 +784,8 @@ void loop() {
                     sqrtf(orientation[0] * orientation[0] + orientation[1] * orientation[1] +
                           orientation[2] * orientation[2]),
                     (unsigned long)(invertedAt ? millis() - invertedAt : 0));
+      Serial.printf("POWER_POLICY off_latched=%d shutdown_pending=%d key_released=%d\n",
+                    offIntentLatched, shutAfterClose, shutdownKeyReleased);
     }
   }
   if (!dumping && now - lastPrint >= 5000) {

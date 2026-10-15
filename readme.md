@@ -4,12 +4,13 @@ Open `RocketLogger/RocketLogger.ino` in Arduino IDE. The commented implementatio
 
 ## Files to share
 
-Share the repository, or share the complete `RocketLogger/` folder together with this README. Do not share only the `.ino`: Arduino also needs `Logger.cpp`, `Config.h`, and `sketch.yaml`. No local library folders or virtual environment are required.
+Share the repository, or share the complete `RocketLogger/` folder together with this README. Do not share only the `.ino`: Arduino also needs `Logger.cpp`, `Config.h`, `PowerPolicy.h`, and `sketch.yaml`. No local library folders or virtual environment are required.
 
 | File | Purpose |
 |---|---|
 | `RocketLogger/RocketLogger.ino` | Arduino sketch entry file |
 | `RocketLogger/Logger.cpp` | Commented firmware, sensor drivers, state machine, SD writer |
+| `RocketLogger/PowerPolicy.h` | Transport-off boot and USB-insertion policy |
 | `RocketLogger/Config.h` | Pin map, sampling rate, arming thresholds, charger settings |
 | `RocketLogger/sketch.yaml` | Pinned, portable Arduino CLI build profile |
 | `tools/build.sh` | Optional macOS/Linux build and upload wrapper |
@@ -20,7 +21,7 @@ Share the repository, or share the complete `RocketLogger/` folder together with
 
 - Arduino ESP32 core 3.3.12, ESP32S3 Dev Module, 8MB flash, default 8MB partition scheme, USB CDC on boot enabled, no PSRAM.
 - Adafruit NeoPixel 1.15.5 and XPowersLib 0.3.3.
-- `sketch.yaml` pins the platform and both libraries. Wire, FS, SD_MMC, FreeRTOS, and esp_timer are supplied by the ESP32 platform. The sensor burst drivers are part of `Logger.cpp`, so no extra accelerometer/barometer library is needed.
+- `sketch.yaml` pins the platform and both libraries. Wire, FS, SD_MMC, Preferences (NVS), FreeRTOS, esp_timer, and esp_sleep are supplied by the ESP32 platform. The sensor burst drivers are part of `Logger.cpp`, so no extra accelerometer/barometer library is needed.
 - Native Homebrew ctags is used because the bundled Arduino helper is Intel-only on this ARM Mac. The implementation is C++ to avoid automatic sketch prototype generation.
 
 ## Build and upload with Arduino CLI
@@ -73,7 +74,7 @@ Devices: KXTJ3-1057 at 0x0F, SPL06 at 0x77, AXP2101 at 0x34. The SD card mounts 
 
 ## Operation
 
-1. Boot to READY. Blue blinking shows battery SoC when not charging. Charging overrides blue/green with purple.
+1. Boot to READY. READY always blinks blue, including when USB is charging. The PMU charge LED shows charging separately; POST can blink purple while charging.
 2. **X is the launch axis**, confirmed on the connected board. Hold the rocket upside down (filtered X below −0.75g, gravity magnitude between 0.65g and 1.50g) for 500ms. This starts a new `flight_XXXXXX.csv` and turns the pixel steady red. Recording starts immediately, before launch, so preparation movement is captured.
 3. Recording continues while stationary, including any wait on the launch pad. **Press the CWA play button to stop recording.** The logger drains queued rows, flushes and closes the CSV, enters POST, and writes a status TXT with fresh battery telemetry. The pixel then blinks green, or purple if charging. There is no inactivity timeout.
 4. To rearm after POST, hold upright for one second, then invert again. Each recording has a new filename, including across restarts.
@@ -113,7 +114,7 @@ X is selected explicitly in `Logger.cpp`; changing the launch axis also requires
 
 ## Battery and power
 
-The provided PLA schematic is an AXP2101 design with DCDC1 feeding VCC. Firmware sets and reads back DCDC1 at 3,300mV, leaves it enabled, disables the PMU watchdog, and preserves thermal/voltage protections. It sets a 1-second power-on key hold, long-press shutdown, and a 10-second hardware shutdown backup. The firmware polls the long-press IRQ every 100ms, including in sensor/SD fault. Hold the PMU button until the NeoPixel goes out (about two seconds), then release it. An active recording closes before PMU shutdown. Shutdown latches POWER_OFF, stops acquisition, and turns the NeoPixel off; the PMU charge LED can keep blinking while USB charging continues. A PMU power-on event restarts the application when USB still supplies the ESP32.
+The provided PLA schematic is an AXP2101 design with DCDC1 feeding VCC. Firmware sets and reads back DCDC1 at 3,300mV, leaves it enabled, disables the PMU watchdog, and preserves thermal/voltage protections. It sets a 1-second power-on key hold, long-press shutdown, and a 10-second hardware shutdown backup. The firmware polls the long-press IRQ every 100ms, including in sensor/SD fault. Hold the PMU button for about two seconds, then release it. Software shutdown waits for the release to avoid turning back on because PWRON is still held low. An active recording closes before PMU shutdown. Shutdown latches POWER_OFF, stops acquisition, and turns the NeoPixel off; the PMU charge LED can keep blinking while USB charging continues. A PMU on-status or another power-key press does not restart the application. A saved transport-off latch survives ESP32 resets and battery power cycles. Startup checks that latch before enabling DCDC1 or initializing sensors and SD: a latched battery-only boot shuts down again. USB-powered startup clears the latch and returns to blue READY. If shutdown occurs while USB is already attached, unplug and reinsert USB to start again; its existing presence does not wake it.
 
 PL053450 **3.7V / 900mAh** is the supplied battery (superseding the initial 600mAh description). Charging is configured at a conservative **100mA CC / 4.2V CV**, with 25mA precharge/termination. The supplied 900mA rating is a *discharge* rating; confirm the manufacturer's charge specification before increasing current. The schematic has a fixed resistor instead of a battery thermistor, so the TS input is configured accordingly. The PMU charge LED blinks at 1Hz while charging and stays on otherwise.
 
@@ -130,7 +131,7 @@ The board reported USB insertion as its PMU power-on source. USB supplies the CW
 | `d` / `b` | Transfer the last CSV / last status TXT |
 | `v` | PMU register and voltage diagnostics outside recording |
 
-States: 0 READY, 1 FLIGHT, 2 CLOSING, 3 POST, 4 FAULT, 5 POWER_OFF. In POWER_OFF, serial `?` reports `pmu_on`; `0` confirms the PMU state, while the separate USB/LDO supply may still power the ESP32. Downloads suppress live console messages and temporarily suspend arming and other serial commands to preserve file transfer integrity. USB writes may wait during a bench download; flight console output remains nonblocking. Normal console writes are nonblocking so an absent or slow USB host cannot stall acquisition. The play button also serves as the boot strap: holding it while resetting can enter the ESP32 bootloader.
+States: 0 READY, 1 FLIGHT, 2 CLOSING, 3 POST, 4 FAULT, 5 POWER_OFF. In POWER_OFF, serial `?` reports the saved off latch and checked USB status. The separate USB/LDO supply can still power the ESP32; firmware keeps acquisition and the NeoPixel off. Only a new USB insertion permits startup. Unreadable PMU status is never treated as a wake request. Downloads suppress live console messages and temporarily suspend arming and other serial commands to preserve file transfer integrity. USB writes may wait during a bench download; flight console output remains nonblocking. Normal console writes are nonblocking so an absent or slow USB host cannot stall acquisition. Erasing the full flash also erases the saved transport-off latch; normal firmware uploads preserve it. The play button also serves as the boot strap: holding it while resetting can enter the ESP32 bootloader.
 
 `tools/bench.py` performs a bench recording and collects serial evidence. `tools/readback.py` downloads and validates the last CSV. These require pyserial, installed in the local ignored virtual environment. Test CSV copies and reports are saved in `test-results/`. Diagnostic commands operate on the live board; `r` starts a real SD recording.
 
@@ -185,7 +186,7 @@ After the confirmed battery-only long-press shutdown, the board restarted succes
 - Both accelerometer and barometer responding, with **zero I2C errors**. The earlier missing-barometer fault is resolved.
 - A new status TXT successfully written to and read back from the SD card.
 - Filtered upright X approximately **+0.88g**, temperature **24.1°C**, pressure **985.37hPa**.
-- Battery approximately **3.74V**, USB present, actively charging. Purple blinking is expected while charging outside the recording state.
+- Battery approximately **3.74V**, USB present, actively charging. That snapshot used the earlier purple READY charging indication; the current firmware uses blue READY even while charging, as requested on 15 October.
 - PMU SoC still **0%**; this estimate and the SoC-derived blink rate remain to be validated.
 
 Recording starts with the inversion gesture and **does not stop for inactivity**. Play closes it and requests a fresh post-flight status report. Physical Play stopping/reporting and power-key file closure during an active recording remain unverified. A long stationary bench recording was closed via serial; its full CSV download was interrupted by USB disconnection and is not counted as a complete readback pass.
@@ -195,3 +196,20 @@ Evidence: [live restart status](test-results/restarted-device-status.log), [SD s
 ## Earlier bench evidence
 
 The one-minute SD readback contained **49,323 rows over 60.499 seconds**, averaging **815.26 records/s**, with consecutive sequence numbers and no queued row losses. Maximum sample gap was **2.653ms**; pressure updated at approximately **127Hz**. Automatic inactivity closing was tested in the earlier firmware but has since been removed: the current firmware requires Play to stop recording. Status TXT creation was tested. The final firmware also recorded with the host serial port closed for eight seconds and passed SD readback. These are bench measurements, not a flight qualification or proof that every sensor conversion is captured. See [validation details](test-results/VALIDATION.md) for the original logs, measured values, and remaining limits.
+
+## Transport shutdown policy — 15 October 2026
+
+Long press and release the AXP2101 key to request shutdown. The intent is saved in ESP32 NVS as soon as the long press is detected, before file closure or the PMU hardware timeout. Software waits for both button release and CSV closure before cutting power. This avoids a held PWRON key immediately requesting another startup.
+
+The firmware removes PMU software/IRQ sleep-wake paths and no longer restarts in response to the PMU simply reporting on. If an unexpected battery-only reset occurs, the saved off request is checked before normal rail/sensor/SD setup and reasserts shutdown. A battery-only shutdown also disables all ESP32 deep-sleep wake sources if the MCU remains powered briefly. There is no timed wake or scheduled restart.
+
+Plugging USB into the core allows startup again: confirmed VBUS clears the saved latch and returns to blue READY, with USB charging still enabled. If USB was connected when shutdown was requested, detach and reattach it. The NeoPixel staying dark while USB is attached is a software OFF state; the USB/LDO supply itself cannot be physically disconnected by the AXP2101. Off-state battery current has not been measured with a meter.
+
+Run the host policy checks with:
+
+```sh
+c++ -std=c++11 tools/test_power_policy.cpp -o /tmp/test_power_policy
+/tmp/test_power_policy
+```
+
+`tools/transport_power_watch.py` is a read-only monitor that reconnects after USB removal during hands-on power testing. It uses the same development serial port as the other Python helpers. See the latest validation record for the physical tests actually completed.

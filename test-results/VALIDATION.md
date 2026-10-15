@@ -61,3 +61,15 @@ A status TXT written during recording using serial `t` was previously validated 
 - Flight performance with the chosen motor, shock, vibration, and SD card.
 
 DCDC1 was configured and read back at 3,300mV; no independent multimeter measurement of the rail was made. This is bench validation, not flight qualification.
+
+## Transport-off update — 15 October 2026
+
+The user reported delayed startup after long-press shutdown. The previous code explicitly restarted the ESP32 if PMU on-status reappeared; this restart path was removed. Shutdown intent is now stored in NVS when the long press is detected. Software waits for key release and file closure before cutting power. Before enabling DCDC1 or initializing sensors/SD, a battery-only reboot with that saved intent reasserts shutdown. Checked USB presence is required to clear it. If USB is already attached during shutdown, only its subsequent removal and insertion wakes the existing OFF session. Unreadable PMU status is not treated as a wake event.
+
+Power-down removes PMU software/IRQ sleep-wake paths and disables all ESP32 deep-sleep wake sources if the MCU remains powered on battery. READY now blinks blue even while charging; the PMU charge LED remains available for charging indication. The existing hardware shutdown backup is retained.
+
+Host C++ tests passed for repeated latched battery boots, invalid USB status reads, removal/reinsertion gating, and no wake from an already-attached USB source. The pinned Arduino build compiled and uploaded with hash verification. Live startup was READY with both sensors working, zero I2C errors, and off_latched=0. Battery telemetry was approximately 4.13V and 93–94%, actively charging; unlike the earlier snapshot, the PMU is now returning a nonzero SoC estimate. Percentage accuracy is still not calibrated.
+
+The delayed-restart scenario, battery-only off dwell, and USB wake after an off dwell still require physical confirmation for this updated firmware. Off-state current has not been measured. Do not count the older physical shutdown test as verification of the new persistent latch.
+
+Reproduce the policy checks with `c++ -std=c++11 tools/test_power_policy.cpp -o /tmp/test_power_policy && /tmp/test_power_policy`.
