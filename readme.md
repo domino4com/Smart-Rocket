@@ -1,5 +1,7 @@
 # CWA v2+ rocket logger
 
+For the separate static motor thrust stand (NAU7802 load cell, SSD1306 OLED, saved 629 g calibration, and four-bit SD recording), see [ThrustStand](ThrustStand/README.md).
+
 Open `RocketLogger/RocketLogger.ino` in Arduino IDE. The commented implementation is in the adjacent `Logger.cpp`; settings are in `Config.h`.
 
 ## Files to share
